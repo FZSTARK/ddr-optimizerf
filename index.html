@@ -1,0 +1,877 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DDR Optimizer — Drone Delivery Route Planner</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0E2A2F">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="DDR Optimizer">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root{
+    --ink:#0E2A2F; --panel:#123840; --panel-hi:#17444D;
+    --paper:#F2EFE4; --paper-dim:#DCD7C6;
+    --line: rgba(242,239,228,0.14); --line-strong: rgba(242,239,228,0.28);
+    --optimized:#5FA876; --baseline:#7FA9C4;
+    --laterite:#C1502E; --laterite-dim: rgba(193,80,46,0.18);
+    --gold:#D9A441; --radius: 3px;
+    --font-display:'Space Grotesk', sans-serif; --font-body:'Manrope', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background: var(--ink);
+    background-image:
+      radial-gradient(ellipse 900px 500px at 10% -10%, rgba(95,168,118,0.10), transparent 60%),
+      radial-gradient(ellipse 700px 500px at 100% 0%, rgba(127,169,196,0.08), transparent 55%);
+    color: var(--paper); font-family: var(--font-body); min-height:100vh; padding: 20px 16px 60px;
+  }
+  .wrap{ max-width: 1180px; margin: 0 auto; }
+  header{ margin-bottom: 18px; }
+  .eyebrow-row{ display:flex; align-items:baseline; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .brand{ font-family: var(--font-display); font-weight:700; font-size: 15px; letter-spacing: 0.02em; color: var(--optimized); }
+  .locale{ font-size: 12.5px; color: var(--paper-dim); }
+  h1{ font-family: var(--font-display); font-weight: 700; font-size: clamp(26px, 4.4vw, 40px); line-height: 1.08; margin: 8px 0 6px; letter-spacing: -0.01em; }
+  .subhead{ font-size: 14.5px; color: var(--paper-dim); max-width: 680px; line-height:1.5; margin: 0 0 18px; }
+  .metric-strip{ display:grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: var(--radius); overflow:hidden; }
+  .metric{ padding: 14px 16px; border-right: 1px solid var(--line); background: var(--panel); }
+  .metric:last-child{ border-right:none; }
+  .metric .label{ font-size: 11px; color: var(--paper-dim); margin-bottom:6px; }
+  .metric .value{ font-family: var(--font-display); font-size: 22px; font-weight:700; }
+  .metric .value.good{ color: var(--optimized); }
+  .board{ margin-top: 18px; display:grid; grid-template-columns: 1.55fr 1fr; gap: 16px; align-items:start; }
+  @media (max-width: 880px){
+    .board{ grid-template-columns: 1fr; }
+    .metric-strip{ grid-template-columns: repeat(2,1fr); }
+    .metric:nth-child(2){ border-right:none; }
+  }
+  .panel{ background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+  .panel + .panel{ margin-top:16px; }
+  .panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom: 12px; gap:10px; flex-wrap:wrap; }
+  .panel-title{ font-family: var(--font-display); font-weight:600; font-size: 15px; }
+  .panel-sub{ font-size:12px; color: var(--paper-dim); }
+  .map-legend{ display:flex; gap:14px; flex-wrap:wrap; font-size:12px; color: var(--paper-dim); }
+  .legend-item{ display:flex; align-items:center; gap:6px; }
+  .swatch{ width:14px; height:3px; border-radius:2px; display:inline-block; }
+  .dot{ width:9px; height:9px; border-radius:50%; display:inline-block; }
+  .search-row{ display:flex; gap:8px; margin-bottom:10px; }
+  .search-row input{ flex:1; }
+  .search-row button{ white-space:nowrap; }
+  #mapDiv{ width:100%; height: 360px; border-radius: 2px; border: 1px solid var(--line); background: var(--ink); }
+  .leaflet-container{ background: var(--ink) !important; font-family: var(--font-body); }
+  .leaflet-tile-pane{ filter: invert(1) hue-rotate(180deg) brightness(0.95) contrast(0.9) saturate(0.55); }
+  .leaflet-control-attribution{ background: rgba(14,42,47,0.85) !important; color: var(--paper-dim) !important; font-size:10px !important; }
+  .leaflet-control-attribution a{ color: var(--paper-dim) !important; }
+  .stop-pin{ background: var(--ink); border: 2px solid var(--optimized); border-radius:50%; width:10px; height:10px; }
+  .hub-pin{ background: var(--gold); border: 2px solid var(--ink); border-radius:2px; width:12px; height:12px; }
+  .mode-row{ display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+  .mode-btn{ flex:1; min-width:150px; background: var(--panel-hi); border:1px solid var(--line-strong); color: var(--paper-dim); font-size:12px; padding:8px 10px; border-radius:2px; cursor:pointer; font-weight:600; }
+  .mode-btn.active{ background: var(--optimized); color:#0E2A2F; border-color:var(--optimized); }
+  .mode-hint{ font-size:11.5px; color: var(--paper-dim); margin-top:8px; min-height:15px; }
+  .toggles{ display:flex; gap:16px; margin-top: 14px; flex-wrap:wrap; align-items:center; }
+  .toggle-line{ display:flex; align-items:center; gap:7px; font-size:12.5px; color: var(--paper-dim); }
+  .toggle-line input[type=checkbox]{ accent-color: var(--optimized); }
+  .toggle-line select{ width:auto; padding:4px 6px; font-size:12px; }
+  .weather-readout{ font-size:12px; color: var(--paper-dim); margin-top:8px; padding:8px 10px; border:1px solid var(--line); border-radius:2px; background: var(--panel-hi); display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+  .weather-readout b{ color: var(--paper); }
+  .compliance{ margin-top:12px; padding: 10px 12px; border: 1px solid var(--line); border-left: 3px solid var(--optimized); border-radius: 2px; font-size: 12.5px; color: var(--paper-dim); line-height:1.5; display:flex; gap:10px; align-items:flex-start; }
+  .compliance b{ color: var(--paper); }
+  .drone-row{ display:grid; grid-template-columns: 30px 1fr 56px; gap:10px; align-items:center; padding: 8px 0; border-top:1px solid var(--line); }
+  .drone-row:first-of-type{ border-top:none; }
+  .drone-id{ font-family: var(--font-display); font-weight:700; font-size:14px; color: var(--paper-dim); }
+  .drone-meta{ font-size:11.5px; color: var(--paper-dim); margin-bottom:4px; display:flex; justify-content:space-between; gap:8px;}
+  .bat-track{ height:7px; background: rgba(242,239,228,0.08); border-radius: 4px; overflow:hidden; }
+  .bat-fill{ height:100%; border-radius:4px; }
+  .drone-pct{ text-align:right; font-family: var(--font-display); font-size: 13px; font-weight:600; }
+  .energy-total-row{ display:flex; align-items:flex-end; gap: 22px; margin-bottom:14px; }
+  .ebar-col{ display:flex; flex-direction:column; align-items:center; gap:6px; width:64px; }
+  .ebar-track{ width: 30px; height: 110px; background: rgba(242,239,228,0.06); border-radius: 3px; display:flex; align-items:flex-end; overflow:hidden; }
+  .ebar-fill{ width:100%; border-radius: 2px 2px 0 0; }
+  .ebar-label{ font-size:11px; color:var(--paper-dim); text-align:center; }
+  .ebar-num{ font-family: var(--font-display); font-size:13px; font-weight:700; }
+  .saving-callout{ font-size: 12.5px; color: var(--paper-dim); border-top:1px solid var(--line); padding-top:10px; }
+  .saving-callout b{ color: var(--optimized); font-family: var(--font-display); }
+  label{ display:block; font-size:11.5px; color: var(--paper-dim); margin: 10px 0 5px; }
+  label:first-child{ margin-top:0; }
+  input, select{ width:100%; background: var(--panel-hi); border:1px solid var(--line-strong); color: var(--paper); padding: 8px 9px; border-radius: 2px; font-family: var(--font-body); font-size: 13.5px; }
+  input:focus, select:focus{ outline:none; border-color: var(--optimized); }
+  .form-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .form-row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+  button{ font-family: var(--font-body); font-weight:700; font-size: 13px; cursor:pointer; border-radius: 2px; border: 1px solid transparent; padding: 10px 14px; }
+  .btn-primary{ background: var(--optimized); color: #0E2A2F; width:100%; margin-top: 12px; }
+  .btn-primary:hover{ filter:brightness(1.08); }
+  .btn-ghost{ background: transparent; border:1px solid var(--line-strong); color: var(--paper-dim); width:100%; margin-top:8px; font-weight:600; }
+  .btn-ghost:hover{ color: var(--paper); border-color: var(--paper-dim); }
+  .btn-small{ background: var(--panel-hi); border:1px solid var(--line-strong); color: var(--paper); font-size:12px; padding:8px 10px; }
+  .btn-row{ display:flex; gap:8px; }
+  .btn-row button{ flex:1; margin-top:0; }
+  .stop-list{ margin-top: 14px; border-top:1px solid var(--line); padding-top: 10px; }
+  .stop-item{ display:flex; justify-content:space-between; align-items:center; gap:8px; font-size: 12.5px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+  .stop-item:last-child{ border-bottom:none; }
+  .stop-item .nm{ color: var(--paper); }
+  .stop-item .meta{ color: var(--paper-dim); display:flex; gap:8px; align-items:center; }
+  .day-pill{ font-size:10px; background: rgba(217,164,65,0.18); color: var(--gold); padding:2px 6px; border-radius:8px; }
+  .del-btn{ background:none; border:none; color: var(--laterite); font-size:15px; padding:0 4px; cursor:pointer; }
+  .recalc-note{ font-size:11px; color: var(--paper-dim); margin-top:10px; opacity:0.8; }
+  footer{ text-align:center; font-size: 11.5px; color: var(--paper-dim); margin-top: 26px; opacity:0.7; }
+
+  /* Calendar / day tabs */
+  .day-tabs{ display:flex; gap:6px; flex-wrap:wrap; margin-bottom: 4px; }
+  .day-tab{ background: var(--panel-hi); border:1px solid var(--line-strong); color: var(--paper-dim); font-size:12px; padding:7px 12px; border-radius: 14px; cursor:pointer; font-weight:600; display:flex; flex-direction:column; align-items:center; line-height:1.2; }
+  .day-tab .n{ font-family: var(--font-display); font-size:13px; }
+  .day-tab .c{ font-size:10px; opacity:0.75; }
+  .day-tab.active{ background: var(--optimized); color:#0E2A2F; border-color:var(--optimized); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow-row">
+      <span class="brand">DDR OPTIMIZER</span>
+      <span class="locale" id="localeLabel">— any region, live map —</span>
+      <button class="btn-small" id="installBtn" style="display:none;">⤓ Install app</button>
+      <span class="locale" id="offlineBadge" style="display:none; color:var(--gold);">● offline mode</span>
+    </div>
+    <h1>Sustainable drone delivery, routed on a real map.</h1>
+    <p class="subhead">A nearest-neighbor + 2-opt planner on free OpenStreetMap tiles, with live wind from Open-Meteo, multi-day scheduling, and exportable route reports.</p>
+
+    <div class="metric-strip">
+      <div class="metric"><div class="label">Optimized distance</div><div class="value" id="mDistance">—</div></div>
+      <div class="metric"><div class="label">Distance saved vs baseline</div><div class="value good" id="mDistSave">—</div></div>
+      <div class="metric"><div class="label">Energy saved vs baseline</div><div class="value good" id="mEnergySave">—</div></div>
+      <div class="metric"><div class="label">Drones required</div><div class="value" id="mDrones">—</div></div>
+    </div>
+  </header>
+
+  <div class="board">
+    <div class="col-left">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Fleet map</div>
+            <div class="panel-sub">OpenStreetMap · © OpenStreetMap contributors · altitude capped at 120 m AGL</div>
+          </div>
+          <div class="map-legend">
+            <span class="legend-item"><span class="swatch" style="background:var(--optimized)"></span>optimized</span>
+            <span class="legend-item"><span class="swatch" style="background:var(--baseline)"></span>baseline</span>
+            <span class="legend-item"><span class="dot" style="background:var(--laterite)"></span>no-fly zone</span>
+          </div>
+        </div>
+
+        <div class="search-row">
+          <input id="placeSearch" type="text" placeholder="Search a place (e.g. Nairobi, Kenya) and press Enter">
+          <button class="btn-small" id="searchBtn">Search</button>
+        </div>
+
+        <div id="mapDiv"></div>
+
+        <div class="mode-row">
+          <button class="mode-btn" id="modeHub">📍 Click map: move hub</button>
+          <button class="mode-btn" id="modeStop">➕ Click map: place stop</button>
+        </div>
+        <div class="mode-hint" id="modeHint"></div>
+
+        <div class="toggles">
+          <label class="toggle-line"><input type="checkbox" id="toggleBaseline" checked> show baseline route</label>
+          <label class="toggle-line"><input type="checkbox" id="toggleLiveWeather"> live wind (Open-Meteo)</label>
+          <label class="toggle-line">manual wind:
+            <select id="windDir">
+              <option value="0">N</option><option value="45">NE</option><option value="90">E</option>
+              <option value="135">SE</option><option value="180">S</option><option value="225">SW</option>
+              <option value="270" selected>W</option><option value="315">NW</option>
+            </select>
+          </label>
+        </div>
+        <div class="weather-readout" id="weatherReadout">Manual wind mode — pick a direction above, or switch on live wind.</div>
+
+        <div class="compliance">
+          <span>✓</span>
+          <div><b>DGCA-style compliant.</b> All legs held at ≤120 m altitude; no-fly zones near the hub are geometrically routed around rather than crossed.</div>
+        </div>
+        <div class="recalc-note" id="recalcNote"></div>
+      </div>
+    </div>
+
+    <div class="col-right">
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Delivery calendar</div>
+          <div class="panel-sub" id="calSub"></div>
+        </div>
+        <div class="day-tabs" id="dayTabs"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Fleet status</div>
+          <div class="panel-sub" id="fleetSub"></div>
+        </div>
+        <div id="droneList"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Energy usage</div>
+          <div class="panel-sub">battery-units consumed, day total</div>
+        </div>
+        <div class="energy-total-row" id="energyBars"></div>
+        <div class="saving-callout" id="savingCallout"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><div class="panel-title">Export route report</div></div>
+        <div class="btn-row">
+          <button class="btn-small" id="exportCsvBtn">Export CSV</button>
+          <button class="btn-small" id="exportPdfBtn">Export PDF</button>
+        </div>
+        <div class="recalc-note">Exports cover the currently selected day's optimized routes.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><div class="panel-title">Add delivery stop</div></div>
+        <label for="inName">Stop name</label>
+        <input id="inName" type="text" placeholder="e.g. Warehouse District" autocomplete="off">
+        <div class="recalc-note" id="geoStatus" style="min-height:1.2em;"></div>
+        <div class="form-row">
+          <div><label for="inLat">Latitude</label><input id="inLat" type="number" step="0.0001" value="8.5074"></div>
+          <div><label for="inLng">Longitude</label><input id="inLng" type="number" step="0.0001" value="76.9700"></div>
+        </div>
+        <div class="form-row">
+          <div><label for="inW">Parcel weight (kg, max 3.5)</label><input id="inW" type="number" step="0.1" min="0.1" max="3.5" value="1.2"></div>
+          <div><label for="inDay">Delivery day</label><input id="inDay" type="number" step="1" min="1" value="1"></div>
+        </div>
+        <button class="btn-primary" id="addStopBtn">Add stop &amp; re-optimize</button>
+        <button class="btn-ghost" id="resetBtn">Reset to default network</button>
+        <div class="stop-list" id="stopList"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>Simplified planning model for illustration — not flight-certified. Map data © OpenStreetMap contributors. Place search via Nominatim. Weather via Open-Meteo.</footer>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://unpkg.com/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.js"></script>
+<script>
+/* ---------------------------------------------------------------
+   CONSTANTS / ENERGY MODEL
+--------------------------------------------------------------- */
+let HUB = { lat: 8.5074, lng: 76.9526, name: "Hub" };
+const PAYLOAD_MAX = 3.5;
+const NOMINAL_RANGE_KM = 30;
+const BATTERY_UNITS = 100;
+const UNITS_PER_KM = BATTERY_UNITS / NOMINAL_RANGE_KM;
+const BATTERY_SAFE_BUDGET = 95;
+const WEIGHT_STEP_MULT = 0.05;
+
+const NO_FLY_OFFSETS = [
+  { name: "Approach Corridor A", dx: 0.0,  dy: -4.2, r: 1.9 },
+  { name: "Restricted Perimeter B", dx: 4.0, dy: 1.5, r: 1.2 },
+];
+
+let windFromDeg = 270;
+let headwindMult = 1.15;   // static default; live weather scales this by wind speed
+let liveWeather = null;    // { speedKmh, dirDeg }
+let liveWeatherEnabled = false;
+let activeDay = 1;
+
+let points = [
+  { id: 1,  name: "Kovalam",         lat: 8.4004, lng: 76.9787, w: 1.4, day: 1 },
+  { id: 2,  name: "Poovar",          lat: 8.3283, lng: 77.0714, w: 0.8, day: 1 },
+  { id: 3,  name: "Vellayani",       lat: 8.4550, lng: 76.9950, w: 2.1, day: 1 },
+  { id: 4,  name: "Kesavadasapuram", lat: 8.5150, lng: 76.9500, w: 0.6, day: 2 },
+  { id: 5,  name: "Peroorkada",      lat: 8.5225, lng: 76.9550, w: 1.0, day: 2 },
+  { id: 6,  name: "Pattom",          lat: 8.5165, lng: 76.9430, w: 0.9, day: 2 },
+  { id: 7,  name: "Sreekaryam",      lat: 8.5470, lng: 76.9107, w: 1.8, day: 2 },
+  { id: 8,  name: "Kazhakkoottam",   lat: 8.5651, lng: 76.8697, w: 2.6, day: 3 },
+  { id: 9,  name: "Technopark",      lat: 8.5578, lng: 76.8809, w: 1.5, day: 3 },
+  { id: 10, name: "Varkala",         lat: 8.7379, lng: 76.7163, w: 0.5, day: 3 },
+];
+let nextId = 11;
+
+/* ---------------------------------------------------------------
+   GEO HELPERS
+--------------------------------------------------------------- */
+const toRad = d => d * Math.PI / 180;
+const toDeg = r => r * 180 / Math.PI;
+const COMPASS = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+function degToCompass(d){ return COMPASS[Math.round(((d%360)+360)%360 / 22.5) % 16]; }
+
+function haversine(a, b){
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat), dLng = toRad(b.lng - a.lng);
+  const la1 = toRad(a.lat), la2 = toRad(b.lat);
+  const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function bearing(a, b){
+  const la1 = toRad(a.lat), la2 = toRad(b.lat), dLng = toRad(b.lng - a.lng);
+  const y = Math.sin(dLng) * Math.cos(la2);
+  const x = Math.cos(la1)*Math.sin(la2) - Math.sin(la1)*Math.cos(la2)*Math.cos(dLng);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+function angDiff(a, b){ const d = Math.abs(a-b) % 360; return d > 180 ? 360-d : d; }
+
+function project(p, ref){
+  const R = 6371;
+  const x = toRad(p.lng - ref.lng) * Math.cos(toRad(ref.lat)) * R;
+  const y = toRad(p.lat - ref.lat) * R;
+  return { x, y };
+}
+function unproject(pt, ref){
+  const R = 6371;
+  return { lat: ref.lat + toDeg(pt.y / R), lng: ref.lng + toDeg(pt.x / (R * Math.cos(toRad(ref.lat)))) };
+}
+function currentNoFlyZones(){
+  return NO_FLY_OFFSETS.map(z => {
+    const ll = unproject({ x: z.dx, y: z.dy }, HUB);
+    return { name: z.name, lat: ll.lat, lng: ll.lng, r: z.r };
+  });
+}
+function isHeadwind(from, to){
+  return angDiff(bearing(from, to), windFromDeg) <= 45;
+}
+function segCircleIntersect(a, b, circle){
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len2 = dx*dx + dy*dy;
+  let t = len2 === 0 ? 0 : ((circle.cx - a.x)*dx + (circle.cy - a.y)*dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const cx = a.x + t*dx, cy = a.y + t*dy;
+  const d = Math.hypot(circle.cx - cx, circle.cy - cy);
+  return { hit: d < circle.r + 0.35, closest: {x: cx, y: cy} };
+}
+function noFlyDetour(a, b){
+  const zones = currentNoFlyZones();
+  const pa = project(a, HUB), pb = project(b, HUB);
+  for(const z of zones){
+    const pz = project({lat: z.lat, lng: z.lng}, HUB);
+    const circle = { cx: pz.x, cy: pz.y, r: z.r };
+    const res = segCircleIntersect(pa, pb, circle);
+    if(res.hit){
+      let px = res.closest.x - circle.cx, py = res.closest.y - circle.cy;
+      let pl = Math.hypot(px, py);
+      if(pl < 0.001){ px = 1; py = 0; pl = 1; }
+      const ux = px/pl, uy = py/pl;
+      const detourFlat = { x: circle.cx + ux*(circle.r+0.55), y: circle.cy + uy*(circle.r+0.55) };
+      return unproject(detourFlat, HUB);
+    }
+  }
+  return null;
+}
+function legEnergyAndDistance(from, to, remainingWeight){
+  const via = noFlyDetour(from, to);
+  const chain = via ? [via, to] : [to];
+  let rawDist = 0, headwindAny = false, prev = from;
+  for(const stop of chain){
+    rawDist += haversine(prev, stop);
+    if(isHeadwind(prev, stop)) headwindAny = true;
+    prev = stop;
+  }
+  const windMult = headwindAny ? headwindMult : 1.0;
+  const weightMult = remainingWeight > 1 ? (1 + WEIGHT_STEP_MULT * (remainingWeight - 1)) : 1.0;
+  const energy = rawDist * UNITS_PER_KM * windMult * weightMult;
+  return { distance: rawDist, energy, via, headwind: headwindAny };
+}
+
+/* ---------------------------------------------------------------
+   TSP: nearest-neighbor + 2-opt (operates on the active day's points)
+--------------------------------------------------------------- */
+function nearestNeighborOrder(pts){
+  const remaining = pts.slice();
+  const order = [];
+  let current = HUB;
+  while(remaining.length){
+    let bi = 0, bd = Infinity;
+    for(let i=0;i<remaining.length;i++){
+      const d = haversine(current, remaining[i]);
+      if(d < bd){ bd = d; bi = i; }
+    }
+    current = remaining.splice(bi,1)[0];
+    order.push(current);
+  }
+  return order;
+}
+function tourLength(order){
+  let total = 0, prev = HUB;
+  for(const p of order){ total += haversine(prev,p); prev = p; }
+  total += haversine(prev, HUB);
+  return total;
+}
+function twoOpt(order){
+  let best = order.slice();
+  let improved = true, guard = 0;
+  while(improved && guard < 400){
+    improved = false; guard++;
+    for(let i=0;i<best.length-1;i++){
+      for(let k=i+1;k<best.length;k++){
+        const newOrder = best.slice(0,i).concat(best.slice(i,k+1).reverse(), best.slice(k+1));
+        if(tourLength(newOrder) < tourLength(best) - 1e-7){ best = newOrder; improved = true; }
+      }
+    }
+  }
+  return best;
+}
+
+/* ---------------------------------------------------------------
+   TRIP SPLITTING
+--------------------------------------------------------------- */
+function splitIntoTrips(order){
+  const trips = [];
+  let cur = [], curWeight = 0;
+  function evaluate(tripPoints){
+    const weight = tripPoints.reduce((s,p)=>s+p.w,0);
+    let prev = HUB, total = 0, legs = [], remaining = weight;
+    for(const p of tripPoints){
+      const leg = legEnergyAndDistance(prev, p, remaining);
+      legs.push({ from: prev, to: p, ...leg });
+      total += leg.energy; remaining -= p.w; prev = p;
+    }
+    const home = legEnergyAndDistance(prev, HUB, 0);
+    legs.push({ from: prev, to: HUB, ...home, returning:true });
+    total += home.energy;
+    return { energy: total, legs, weight };
+  }
+  for(const p of order){
+    if(curWeight + p.w > PAYLOAD_MAX){
+      if(cur.length) trips.push(evaluate(cur));
+      cur = [p]; curWeight = p.w; continue;
+    }
+    const trial = cur.concat([p]);
+    const test = evaluate(trial);
+    if(test.energy > BATTERY_SAFE_BUDGET){
+      if(cur.length) trips.push(evaluate(cur));
+      cur = [p]; curWeight = p.w;
+    } else { cur = trial; curWeight += p.w; }
+  }
+  if(cur.length) trips.push(evaluate(cur));
+  return trips;
+}
+
+/* ---------------------------------------------------------------
+   PLAN (scoped to the active delivery day)
+--------------------------------------------------------------- */
+function dayPoints(day){ return points.filter(p => p.day === day); }
+
+function computePlan(){
+  const t0 = performance.now();
+  const todays = dayPoints(activeDay);
+  const nn = nearestNeighborOrder(todays);
+  const optimizedOrder = twoOpt(nn);
+  const baselineOrder = todays.slice();
+  const optimizedTrips = splitIntoTrips(optimizedOrder);
+  const baselineTrips = splitIntoTrips(baselineOrder);
+  const t1 = performance.now();
+  return { optimizedTrips, baselineTrips, ms: t1 - t0, count: todays.length };
+}
+function sumDistance(trips){ return trips.reduce((s,t)=> s + t.legs.reduce((a,l)=>a+l.distance,0), 0); }
+function sumEnergy(trips){ return trips.reduce((s,t)=> s + t.energy, 0); }
+
+/* ---------------------------------------------------------------
+   LIVE WEATHER — Open-Meteo (free, no key)
+--------------------------------------------------------------- */
+async function fetchWeather(){
+  const readout = document.getElementById('weatherReadout');
+  readout.textContent = 'Fetching live wind…';
+  try{
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${HUB.lat}&longitude=${HUB.lng}&current=wind_speed_10m,wind_direction_10m,weather_code&wind_speed_unit=kmh`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const speed = data.current.wind_speed_10m;
+    const dir = data.current.wind_direction_10m;
+    liveWeather = { speedKmh: speed, dirDeg: dir };
+    if(liveWeatherEnabled){
+      windFromDeg = dir;
+      headwindMult = 1 + Math.min(0.35, Math.max(0.05, speed/90));
+    }
+    readout.innerHTML = `Live: <b>${speed.toFixed(0)} km/h</b> from <b>${degToCompass(dir)}</b> (${dir.toFixed(0)}°) · penalty this run: <b>${((headwindMult-1)*100).toFixed(0)}%</b> on headwind legs`;
+    refresh();
+  } catch(err){
+    readout.textContent = 'Live weather unavailable right now — using manual wind.';
+    liveWeatherEnabled = false;
+    document.getElementById('toggleLiveWeather').checked = false;
+  }
+}
+
+document.getElementById('toggleLiveWeather').addEventListener('change', (e) => {
+  liveWeatherEnabled = e.target.checked;
+  document.getElementById('windDir').disabled = liveWeatherEnabled;
+  if(liveWeatherEnabled){
+    fetchWeather();
+  } else {
+    headwindMult = 1.15;
+    windFromDeg = Number(document.getElementById('windDir').value);
+    document.getElementById('weatherReadout').textContent = 'Manual wind mode — pick a direction above, or switch on live wind.';
+    refresh();
+  }
+});
+document.getElementById('windDir').addEventListener('change', (e) => {
+  if(!liveWeatherEnabled){ windFromDeg = Number(e.target.value); refresh(); }
+});
+
+/* ---------------------------------------------------------------
+   LEAFLET MAP
+--------------------------------------------------------------- */
+const map = L.map('mapDiv', { zoomControl: true }).setView([HUB.lat, HUB.lng], 12);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 18, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+let overlayLayer = L.layerGroup().addTo(map);
+let clickMode = null;
+function hubIcon(){ return L.divIcon({ className:'', html:'<div class="hub-pin"></div>', iconSize:[12,12] }); }
+function stopIcon(){ return L.divIcon({ className:'', html:'<div class="stop-pin"></div>', iconSize:[10,10] }); }
+function pathFromLegs(legs){
+  const pts = [[HUB.lat, HUB.lng]];
+  for(const leg of legs){
+    if(leg.via) pts.push([leg.via.lat, leg.via.lng]);
+    pts.push([leg.to.lat, leg.to.lng]);
+  }
+  return pts;
+}
+function renderMap(plan){
+  overlayLayer.clearLayers();
+  const showBaseline = document.getElementById('toggleBaseline').checked;
+  for(const z of currentNoFlyZones()){
+    L.circle([z.lat, z.lng], { radius: z.r*1000, color:'#C1502E', weight:1.5, dashArray:'4,3', fillColor:'#C1502E', fillOpacity:0.12 }).addTo(overlayLayer);
+  }
+  if(showBaseline){
+    for(const trip of plan.baselineTrips){
+      L.polyline(pathFromLegs(trip.legs), { color:'#7FA9C4', weight:2.5, opacity:0.75, dashArray:'5,4' }).addTo(overlayLayer);
+    }
+  }
+  for(const trip of plan.optimizedTrips){
+    L.polyline(pathFromLegs(trip.legs), { color:'#5FA876', weight:3 }).addTo(overlayLayer);
+  }
+  L.marker([HUB.lat, HUB.lng], { icon: hubIcon() }).bindTooltip('Hub').addTo(overlayLayer);
+  for(const p of dayPoints(activeDay)){
+    L.marker([p.lat, p.lng], { icon: stopIcon() }).bindTooltip(p.name).addTo(overlayLayer);
+  }
+  const todays = dayPoints(activeDay);
+  if(todays.length){
+    map.fitBounds(L.latLngBounds([[HUB.lat, HUB.lng], ...todays.map(p=>[p.lat,p.lng])]).pad(0.25));
+  }
+}
+map.on('click', (e) => {
+  if(clickMode === 'hub'){
+    HUB = { lat: e.latlng.lat, lng: e.latlng.lng, name: 'Hub' };
+    if(liveWeatherEnabled) fetchWeather(); else refresh();
+  } else if(clickMode === 'stop'){
+    document.getElementById('inLat').value = e.latlng.lat.toFixed(4);
+    document.getElementById('inLng').value = e.latlng.lng.toFixed(4);
+    stopGeoOverridden = true;
+  }
+});
+document.getElementById('modeHub').addEventListener('click', () => {
+  clickMode = clickMode === 'hub' ? null : 'hub';
+  document.getElementById('modeHub').classList.toggle('active', clickMode==='hub');
+  document.getElementById('modeStop').classList.remove('active');
+  document.getElementById('modeHint').textContent = clickMode==='hub' ? 'Click anywhere on the map to relocate the hub.' : '';
+});
+document.getElementById('modeStop').addEventListener('click', () => {
+  clickMode = clickMode === 'stop' ? null : 'stop';
+  document.getElementById('modeStop').classList.toggle('active', clickMode==='stop');
+  document.getElementById('modeHub').classList.remove('active');
+  document.getElementById('modeHint').textContent = clickMode==='stop' ? 'Click a point on the map to fill in coordinates below, then name it and add it.' : '';
+});
+
+async function searchPlace(){
+  const q = document.getElementById('placeSearch').value.trim();
+  if(!q) return;
+  const hint = document.getElementById('modeHint');
+  hint.textContent = 'Searching…';
+  try{
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if(data && data[0]){
+      const lat = parseFloat(data[0].lat), lng = parseFloat(data[0].lon);
+      map.setView([lat, lng], 12);
+      HUB = { lat, lng, name: data[0].display_name.split(',')[0] };
+      document.getElementById('localeLabel').textContent = '— ' + data[0].display_name.split(',').slice(0,3).join(',') + ' —';
+      hint.textContent = `Hub moved to ${HUB.name}.`;
+      if(liveWeatherEnabled) fetchWeather(); else refresh();
+    } else { hint.textContent = 'No match found — try a more specific place name.'; }
+  } catch(err){ hint.textContent = 'Search unavailable right now — try again in a moment.'; }
+}
+document.getElementById('searchBtn').addEventListener('click', searchPlace);
+document.getElementById('placeSearch').addEventListener('keydown', (e) => { if(e.key === 'Enter') searchPlace(); });
+
+// Auto-fill latitude/longitude when a stop name is typed, via Nominatim geocoding.
+let stopGeoTimer = null;
+let stopGeoOverridden = false; // true once the user manually edits lat/lng themselves
+const inNameEl = document.getElementById('inName');
+const inLatEl = document.getElementById('inLat');
+const inLngEl = document.getElementById('inLng');
+const geoStatusEl = document.getElementById('geoStatus');
+
+async function geocodeStopName(q){
+  geoStatusEl.textContent = 'Looking up coordinates…';
+  try{
+    // Bias results toward the current hub's area so common place names resolve locally first.
+    const d = 0.9; // ~100km box
+    const viewbox = `${HUB.lng-d},${HUB.lat+d},${HUB.lng+d},${HUB.lat-d}`;
+    const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&viewbox=${viewbox}&bounded=0&q=${encodeURIComponent(q)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if(data && data[0] && !stopGeoOverridden){
+      inLatEl.value = parseFloat(data[0].lat).toFixed(4);
+      inLngEl.value = parseFloat(data[0].lon).toFixed(4);
+      geoStatusEl.textContent = `Matched: ${data[0].display_name.split(',').slice(0,3).join(',')}`;
+    } else if(!data || !data[0]){
+      geoStatusEl.textContent = 'No match found — enter coordinates manually.';
+    }
+  } catch(err){
+    geoStatusEl.textContent = 'Lookup unavailable — enter coordinates manually.';
+  }
+}
+
+inNameEl.addEventListener('input', () => {
+  stopGeoOverridden = false; // new name typed, allow auto-fill again
+  const q = inNameEl.value.trim();
+  clearTimeout(stopGeoTimer);
+  if(q.length < 3){ geoStatusEl.textContent = ''; return; }
+  stopGeoTimer = setTimeout(() => geocodeStopName(q), 600);
+});
+
+// If the user manually tweaks lat/lng themselves, stop overwriting their edits for this name.
+[inLatEl, inLngEl].forEach(el => el.addEventListener('input', () => { stopGeoOverridden = true; }));
+
+/* ---------------------------------------------------------------
+   CALENDAR / DAY TABS
+--------------------------------------------------------------- */
+function renderCalendar(){
+  const days = [...new Set(points.map(p=>p.day))].sort((a,b)=>a-b);
+  if(!days.includes(activeDay) && days.length) activeDay = days[0];
+  document.getElementById('calSub').textContent = `${days.length} day${days.length===1?'':'s'} scheduled`;
+  document.getElementById('dayTabs').innerHTML = days.map(d => {
+    const c = dayPoints(d).length;
+    return `<div class="day-tab ${d===activeDay?'active':''}" data-day="${d}"><span class="n">Day ${d}</span><span class="c">${c} stop${c===1?'':'s'}</span></div>`;
+  }).join('') || `<div class="recalc-note">No stops scheduled yet.</div>`;
+  document.querySelectorAll('.day-tab').forEach(el=>{
+    el.addEventListener('click', () => { activeDay = Number(el.getAttribute('data-day')); refresh(); });
+  });
+}
+
+/* ---------------------------------------------------------------
+   FLEET / ENERGY / METRICS / STOP LIST
+--------------------------------------------------------------- */
+function renderFleet(plan){
+  document.getElementById('fleetSub').textContent = `Day ${activeDay} · ${plan.optimizedTrips.length} sortie${plan.optimizedTrips.length===1?'':'s'} · ${plan.count} stops`;
+  let html = '';
+  plan.optimizedTrips.forEach((trip, i) => {
+    const pct = Math.min(100, Math.round(trip.energy));
+    const color = pct >= 90 ? 'var(--laterite)' : pct >= 70 ? 'var(--gold)' : 'var(--optimized)';
+    const dkm = trip.legs.reduce((a,l)=>a+l.distance,0).toFixed(1);
+    const stops = trip.legs.filter(l=>!l.returning).map(l=>l.to.name).join(', ');
+    html += `<div class="drone-row">
+      <div class="drone-id">D${i+1}</div>
+      <div>
+        <div class="drone-meta"><span>${stops}</span><span>${trip.weight.toFixed(1)}kg · ${dkm}km</span></div>
+        <div class="bat-track"><div class="bat-fill" style="width:${pct}%;background:${color}"></div></div>
+      </div>
+      <div class="drone-pct" style="color:${color}">${pct}%</div>
+    </div>`;
+  });
+  document.getElementById('droneList').innerHTML = html || `<div class="recalc-note">No stops scheduled for Day ${activeDay}.</div>`;
+}
+function renderEnergy(plan){
+  const baseE = sumEnergy(plan.baselineTrips), optE = sumEnergy(plan.optimizedTrips);
+  const maxE = Math.max(baseE, optE, 1), bH = 110;
+  document.getElementById('energyBars').innerHTML = `
+    <div class="ebar-col"><div class="ebar-track"><div class="ebar-fill" style="height:${Math.round((baseE/maxE)*bH)}px;background:var(--baseline)"></div></div><div class="ebar-num">${baseE.toFixed(0)}</div><div class="ebar-label">baseline</div></div>
+    <div class="ebar-col"><div class="ebar-track"><div class="ebar-fill" style="height:${Math.round((optE/maxE)*bH)}px;background:var(--optimized)"></div></div><div class="ebar-num">${optE.toFixed(0)}</div><div class="ebar-label">optimized</div></div>`;
+  const pctSaved = baseE > 0 ? Math.max(0, ((baseE-optE)/baseE)*100) : 0;
+  document.getElementById('savingCallout').innerHTML = `2-opt refinement plus wind-aware sequencing cuts Day ${activeDay} energy draw by <b>${pctSaved.toFixed(1)}%</b> against the naive stop order.`;
+}
+function renderMetrics(plan){
+  const baseD = sumDistance(plan.baselineTrips), optD = sumDistance(plan.optimizedTrips);
+  const baseE = sumEnergy(plan.baselineTrips), optE = sumEnergy(plan.optimizedTrips);
+  const distSave = baseD>0 ? ((baseD-optD)/baseD)*100 : 0;
+  const energySave = baseE>0 ? ((baseE-optE)/baseE)*100 : 0;
+  document.getElementById('mDistance').textContent = optD.toFixed(1) + ' km';
+  document.getElementById('mDistSave').textContent = (distSave>=0?'−':'+') + Math.abs(distSave).toFixed(1) + '%';
+  document.getElementById('mEnergySave').textContent = (energySave>=0?'−':'+') + Math.abs(energySave).toFixed(1) + '%';
+  document.getElementById('mDrones').textContent = plan.optimizedTrips.length;
+  document.getElementById('recalcNote').textContent = `Recalculated Day ${activeDay} (${plan.count} stops) in ${plan.ms.toFixed(2)} ms.`;
+}
+function renderStopList(){
+  const el = document.getElementById('stopList');
+  el.innerHTML = points.slice().sort((a,b)=>a.day-b.day).map(p => `
+    <div class="stop-item">
+      <span class="nm">${p.name}</span>
+      <span class="meta"><span class="day-pill">Day ${p.day}</span>${p.w.toFixed(1)}kg</span>
+      <button class="del-btn" data-id="${p.id}" title="Remove stop">✕</button>
+    </div>`).join('');
+  el.querySelectorAll('.del-btn').forEach(btn=>{
+    btn.addEventListener('click', () => { points = points.filter(p=>p.id!==Number(btn.getAttribute('data-id'))); refresh(); });
+  });
+}
+
+function refresh(){
+  const plan = computePlan();
+  window.__lastPlan = plan;
+  renderCalendar();
+  renderMap(plan);
+  renderFleet(plan);
+  renderEnergy(plan);
+  renderMetrics(plan);
+  renderStopList();
+}
+
+/* ---------------------------------------------------------------
+   EXPORTS
+--------------------------------------------------------------- */
+function downloadBlob(content, filename, type){
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('exportCsvBtn').addEventListener('click', () => {
+  const plan = window.__lastPlan || computePlan();
+  const rows = [['Drone','Leg #','From','To','Distance (km)','Headwind','Weight remaining (kg)','Energy (units)']];
+  plan.optimizedTrips.forEach((trip, di) => {
+    trip.legs.forEach((leg, li) => {
+      rows.push([
+        `D${di+1}`, li+1,
+        leg.from.name || 'Hub', leg.to.name || 'Hub',
+        leg.distance.toFixed(2), leg.headwind ? 'yes':'no',
+        (trip.weight - (trip.legs.slice(0,li).reduce((s,l)=> s + (l.to.w||0),0))).toFixed(2),
+        leg.energy.toFixed(2)
+      ]);
+    });
+  });
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  downloadBlob(csv, `ddr-day${activeDay}-routes.csv`, 'text/csv');
+});
+
+document.getElementById('exportPdfBtn').addEventListener('click', () => {
+  const plan = window.__lastPlan || computePlan();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  doc.setFont('helvetica','bold'); doc.setFontSize(16);
+  doc.text('DDR Optimizer — Drone Delivery Route Report', 14, 18);
+  doc.setFont('helvetica','normal'); doc.setFontSize(10);
+  doc.text(`Hub: ${HUB.name} (${HUB.lat.toFixed(4)}, ${HUB.lng.toFixed(4)})  ·  Day ${activeDay}  ·  Generated ${new Date().toLocaleString()}`, 14, 25);
+
+  const optD = sumDistance(plan.optimizedTrips), baseD = sumDistance(plan.baselineTrips);
+  const optE = sumEnergy(plan.optimizedTrips), baseE = sumEnergy(plan.baselineTrips);
+  const distSave = baseD>0 ? ((baseD-optD)/baseD)*100 : 0;
+  const energySave = baseE>0 ? ((baseE-optE)/baseE)*100 : 0;
+  doc.text(`Optimized distance: ${optD.toFixed(1)} km   |   Distance saved: ${distSave.toFixed(1)}%   |   Energy saved: ${energySave.toFixed(1)}%   |   Drones: ${plan.optimizedTrips.length}`, 14, 32);
+
+  const body = [];
+  plan.optimizedTrips.forEach((trip, di) => {
+    trip.legs.forEach((leg, li) => {
+      body.push([`D${di+1}`, leg.from.name || 'Hub', leg.to.name || 'Hub', leg.distance.toFixed(2), leg.headwind?'Yes':'No', leg.energy.toFixed(2)]);
+    });
+  });
+  doc.autoTable({
+    startY: 38,
+    head: [['Drone','From','To','Dist (km)','Headwind','Energy (units)']],
+    body,
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [18,56,64] }
+  });
+  doc.save(`ddr-day${activeDay}-report.pdf`);
+});
+
+/* ---------------------------------------------------------------
+   ADD / RESET
+--------------------------------------------------------------- */
+document.getElementById('addStopBtn').addEventListener('click', () => {
+  const name = document.getElementById('inName').value.trim() || `Stop ${nextId}`;
+  const lat = parseFloat(document.getElementById('inLat').value);
+  const lng = parseFloat(document.getElementById('inLng').value);
+  let w = parseFloat(document.getElementById('inW').value);
+  let day = parseInt(document.getElementById('inDay').value, 10);
+  if(Number.isNaN(lat) || Number.isNaN(lng) || Number.isNaN(w)) return;
+  w = Math.min(Math.max(w, 0.1), PAYLOAD_MAX);
+  if(Number.isNaN(day) || day < 1) day = 1;
+  points.push({ id: nextId++, name, lat, lng, w, day });
+  activeDay = day;
+  document.getElementById('inName').value = '';
+  geoStatusEl.textContent = '';
+  stopGeoOverridden = false;
+  clickMode = null;
+  document.getElementById('modeStop').classList.remove('active');
+  document.getElementById('modeHint').textContent = '';
+  refresh();
+});
+
+document.getElementById('resetBtn').addEventListener('click', () => {
+  HUB = { lat: 8.5074, lng: 76.9526, name: "Hub" };
+  points = [
+    { id: 1,  name: "Kovalam",         lat: 8.4004, lng: 76.9787, w: 1.4, day: 1 },
+    { id: 2,  name: "Poovar",          lat: 8.3283, lng: 77.0714, w: 0.8, day: 1 },
+    { id: 3,  name: "Vellayani",       lat: 8.4550, lng: 76.9950, w: 2.1, day: 1 },
+    { id: 4,  name: "Kesavadasapuram", lat: 8.5150, lng: 76.9500, w: 0.6, day: 2 },
+    { id: 5,  name: "Peroorkada",      lat: 8.5225, lng: 76.9550, w: 1.0, day: 2 },
+    { id: 6,  name: "Pattom",          lat: 8.5165, lng: 76.9430, w: 0.9, day: 2 },
+    { id: 7,  name: "Sreekaryam",      lat: 8.5470, lng: 76.9107, w: 1.8, day: 2 },
+    { id: 8,  name: "Kazhakkoottam",   lat: 8.5651, lng: 76.8697, w: 2.6, day: 3 },
+    { id: 9,  name: "Technopark",      lat: 8.5578, lng: 76.8809, w: 1.5, day: 3 },
+    { id: 10, name: "Varkala",         lat: 8.7379, lng: 76.7163, w: 0.5, day: 3 },
+  ];
+  nextId = 11; activeDay = 1;
+  windFromDeg = 270; headwindMult = 1.15; liveWeatherEnabled = false; liveWeather = null;
+  document.getElementById('windDir').value = "270";
+  document.getElementById('windDir').disabled = false;
+  document.getElementById('toggleLiveWeather').checked = false;
+  document.getElementById('weatherReadout').textContent = 'Manual wind mode — pick a direction above, or switch on live wind.';
+  document.getElementById('localeLabel').textContent = '— any region, live map —';
+  map.setView([HUB.lat, HUB.lng], 12);
+  refresh();
+});
+
+document.getElementById('toggleBaseline').addEventListener('change', refresh);
+
+refresh();
+
+/* ---------------------------------------------------------------
+   PWA: service worker registration + install prompt + offline badge
+--------------------------------------------------------------- */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+
+let deferredInstallPrompt = null;
+const installBtn = document.getElementById('installBtn');
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  installBtn.style.display = 'inline-block';
+});
+installBtn.addEventListener('click', async () => {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  installBtn.style.display = 'none';
+});
+window.addEventListener('appinstalled', () => { installBtn.style.display = 'none'; });
+
+function updateOfflineBadge(){
+  document.getElementById('offlineBadge').style.display = navigator.onLine ? 'none' : 'inline';
+}
+window.addEventListener('online', updateOfflineBadge);
+window.addEventListener('offline', updateOfflineBadge);
+updateOfflineBadge();
+</script>
+</body>
+</html>
